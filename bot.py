@@ -1,16 +1,34 @@
-Contact_book = {}
+from inspect import signature
+
+import address_book
+
+Contact_book = address_book.AddressBook()
+
+
+Handler = {}
 
 
 def input_error(func):
+    argument_names = signature(func).parameters.keys()
+    argument_types = [
+        p.annotation for p in signature(func).parameters.values()
+    ]
+    desc = ", ".join(argument_names)
+
     def wrapper(*args):
         try:
+            if len(args) < len(argument_types):
+                return f'Not enough data for this command, please provide: {desc}'
+            if len(args) > len(argument_types):
+                return f'Too much data for this command, please provide: {desc} (you provided {args})'
+            args = [t(a) for (t, a) in zip(argument_types, args)]
             return func(*args)
         except KeyError as e:
             return f"{e} doesn't exist"
-        except IndexError:
-            return f'Not enough data for this command'
         except ValueError as e:
             return f'Please enter a valid {e}'
+
+    Handler[func.__name__.replace('_', " ")] = wrapper
     return wrapper
 
 
@@ -19,71 +37,69 @@ def read_string():
     return string
 
 
-def command_parser(string):
-    parsed = string.split(' ')
-    command = parsed[0]
-    args = parsed[1:]
+def command_parser(cmdline):
+    command = ""
+    args = []
+    for cmd in sorted(Handler.keys(), key=lambda s: len(s), reverse=True):
+        if cmdline.startswith(cmd):
+            command = cmd
+            cmdline = cmdline[len(cmd):].strip()
+            break
+    if cmdline:
+        args = map(str.strip, cmdline.split(','))
     return command, args
 
 
-def hello(args):
+@ input_error
+def hello():
     return 'How can I help you?'
 
 
-@input_error
-def add(args):
-    name = (' ').join(args[0:-1])
-    phone = args[-1]
-    if len(phone) < 10:
-        raise ValueError(f"phone")
-    else:
-        Contact_book[name] = phone
-        return f'{name} is added to Contacts'
+@ input_error
+def add(name: address_book.Name, phone: address_book.Phone):
+    Contact_book.add_record(address_book.Record(name, phone))
+    return f'{name} is added to Contacts'
 
 
-@input_error
-def change(args):
-    name = (' ').join(args[0:-1])
-    phone = args[-1]
-    if len(phone) < 10:
-        raise ValueError(f"phone")
-    else:
-        Contact_book[name]
-        Contact_book[name] = phone
-        return f'Number is changed for {name}'
+@ input_error
+def add_phone(name: address_book.Name, phone: address_book.Phone):
+    Contact_book[name.value].add_phone(phone)
+    return f'Number {phone} is added to contact {name}'
 
 
-@input_error
-def phone(args):
-    i = (' ').join(args)
-    return Contact_book[i]
+@ input_error
+def delete_phone(name: address_book.Name, phone: address_book.Phone):
+    Contact_book[name.value].delete_phone(phone)
+    return f'Number {phone} is deleted from contact {name}'
 
 
-def show_all(args):
+@ input_error
+def change(name: address_book.Name, phone: address_book.Phone):
+    Contact_book.change_phone(name, phone)
+    return f'Number is changed for {name}'
+
+
+@ input_error
+def phone(name: address_book.Name):
+    return ', '.join(map(str, Contact_book[name.value].phones))
+
+
+@ input_error
+def show_all():
     if not Contact_book:
         return 'Contact book is empty'
     else:
         output = []
         for key, value in Contact_book.items():
-            output.append(f'{key}: {value}')
+            output.append(f'{value}')
         return '\n'.join(output)
-
-
-Handler = {
-    'hello': hello,
-    'add': add,
-    'change': change,
-    'phone': phone,
-    'show': show_all
-}
 
 
 def main(read_string=read_string, print=print):
     while True:
         user_input = read_string()
         command, args = command_parser(user_input)
-
-        if command == ".":
+        if user_input == ".":
             break
         if user_input in ['good bye', 'close', 'exit']:
             print('Good bye!')
@@ -91,7 +107,7 @@ def main(read_string=read_string, print=print):
         if command not in Handler:
             print("Please rephrase your command")
             continue
-        print(Handler[command](args))
+        print(Handler[command](*args))
 
 
 if __name__ == '__main__':
