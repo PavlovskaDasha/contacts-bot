@@ -1,4 +1,6 @@
 from collections import UserDict
+import datetime
+
 
 
 class Field:
@@ -32,6 +34,8 @@ class Field:
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}: {self.value}'
+    
+
 
 
 class Name(Field):
@@ -56,6 +60,11 @@ class Phone(Field):
         return new_phone
 
 
+class Birthday(Field):
+    def sanitize(self, value: str) -> datetime.date:
+        return datetime.datetime.strptime(value, '%d/%m/%Y').date()
+
+
 class FieldSet:
     def __init__(self):
         self.set = set[Field]()
@@ -69,11 +78,12 @@ class FieldSet:
 
 class Record:
 
-    def __init__(self, name: Name, phone: Phone = None):
+    def __init__(self, name: Name, phone: Phone = None, birthday: Birthday = None):
         self.name = name
         self.phones = []
         if phone:
             self.phones.append(phone)
+        self.birthday = birthday
 
     def add_phone(self, phone: Phone):
         self.phones.append(phone)
@@ -84,7 +94,27 @@ class Record:
                 phone.value = new_phone.value
 
     def delete_phone(self, phone: Phone):
-        self.phones.remove(phone)
+        try:
+            self.phones.remove(phone)
+        except:
+            raise ValueError("The number doesn't exist")
+
+    def set_birthday(self, birthday: Birthday):
+        self.birthday = birthday
+
+    def delete_birthday(self):
+        self.birthday = None
+
+    def days_to_birthday(self):
+        today=datetime.datetime.now().date()
+        birthday = self.birthday.value.replace(year=today.year)
+        if birthday>=today:
+            difference=(birthday-today).days
+        else:
+            difference=(self.birthday.value.replace(year=today.year+1)-today).days
+        return difference
+
+
 
     def __str__(self) -> str:
         phones = ', '.join([str(phone) for phone in self.phones])
@@ -94,10 +124,30 @@ class Record:
         return f'{self.name}, Phones: {self.phones}'
 
 
+class RecordsIterator:
+
+    def __init__(self, records:list[Record], N=5):
+        self.records = records
+        self.N=N
+        self.records_counter = 0
+
+    def __next__(self):
+        if self.records_counter>=len(self.records):
+            raise StopIteration
+        l = self.records[self.records_counter:self.records_counter+self.N]
+        self.records_counter+=self.N
+        return l
+    
+
+
 class AddressBook(UserDict[str, Record]):
+
     def add_record(self, record: Record):
         self.data[record.name.value] = record
 
     def change_phone(self, name: Name, phone: Phone):
         old_phone = self.data[name.value].phones[0]
         self.data[name.value].change_phone(old_phone, phone)
+
+    def __iter__(self):
+        return RecordsIterator(list(self.data.values()))
