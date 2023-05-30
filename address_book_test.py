@@ -2,6 +2,7 @@ import address_book
 import datetime
 import pytest
 
+
 def test_record():
     name_1 = address_book.Name('Alex')
     phone_1 = address_book.Phone('+380501015455')
@@ -64,5 +65,33 @@ def test_iteration():
         i=address_book.Record(address_book.Name('name3 %d'%i))
         contact_book.add_record(i)
     assert len(list(contact_book)[1]) == 2
+
+def test_saving_to_file():
+    address_book_1=address_book.AddressBook()
+    r = address_book.Record(address_book.Name('D'), address_book.Phone('9872173665919'), address_book.Birthday('23/09/2000'
+    ))
+    r.add_phone('9872173665932')
+    address_book_1.add_record(r)
+    address_book_1.add_record(address_book.Record(address_book.Name('E')))
+
+    address_book_1.save_to_file('address_book.json')
+    address_book_2=address_book.AddressBook()
+    address_book_2.read_from_file('address_book.json')
+    assert address_book_2['D'].phones[0].value=='9872173665919'
+    assert address_book_2['D'].phones[1].value=='9872173665932'
+    assert address_book_2['E'].name.value=='E'
+
+def test_saving_to_file_pickle():
+    address_book_1=address_book.AddressBook()
+    address_book_1.add_record(address_book.Record(address_book.Name('D'), address_book.Phone('9872173665919'), address_book.Birthday('23/09/2000'
+    )))
+    address_book_1.save_to_file('address_book.bin')
+    address_book_2=address_book.AddressBook()
+    address_book_2.read_from_file('address_book.bin')
+    assert address_book_2['D'].phones[0].value=='9872173665919'
+
+
+    
+
     
 

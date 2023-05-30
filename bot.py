@@ -1,5 +1,7 @@
 from inspect import signature, Parameter
 import address_book
+import os.path
+import contextlib
 
 Handler = {}
 
@@ -117,21 +119,43 @@ def next(bot : Bot):
     except StopIteration:
         return "No more data to scroll"
 
+@input_error   
+def search(bot: Bot, input:str):
+    bot.contact_iterator = bot.contact_book.search(input)
+    return next(bot)
+
+
+class UserSession:
+    def __init__(self, file):
+        self.bot = Bot()
+        self.file = file
+    
+    def __enter__(self):
+        if os.path.exists(self.file):
+            try:
+                self.bot.contact_book.read_from_file(self.file)
+            except:
+                os.remove(self.file)
+        return self
+    
+    def __exit__(self, *args):
+        self.bot.contact_book.save_to_file(self.file)
+
 
 def main(read_string=read_string, print=print):
-    bot = Bot()
-    while True:
-        user_input = read_string()
-        command, args = command_parser(user_input)
-        if user_input == ".":
-            break
-        if user_input in ['good bye', 'close', 'exit']:
-            print('Good bye!')
-            break
-        if command not in Handler:
-            print("Please rephrase your command")
-            continue
-        print(Handler[command](bot, *args))
+    with UserSession("contacts.json") as session:
+        while True:
+            user_input = read_string()
+            command, args = command_parser(user_input)
+            if user_input == ".":
+                break
+            if user_input in ['good bye', 'close', 'exit']:
+                print('Good bye!')
+                break
+            if command not in Handler:
+                print("Please rephrase your command")
+                continue
+            print(Handler[command](session.bot, *args))
 
 
 if __name__ == '__main__':

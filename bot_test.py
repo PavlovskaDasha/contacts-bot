@@ -1,5 +1,12 @@
 import bot
 import pytest
+import os
+import os.path
+
+@pytest.fixture(autouse=True)
+def remove_saved_contacts():
+    if os.path.isfile("contacts.json"):
+        os.remove("contacts.json")
 
 
 def simulate_inputs(inputs):
@@ -146,3 +153,68 @@ def test_delete_phone():
         ['add John, 867594568901', 'add phone John, 98776543981', 'delete phone John, 867594568901', 'show all', '.']), print=output.append)
     assert output == ['John is added to Contacts',
                       'Number 98776543981 is added to contact John', 'Number 867594568901 is deleted from contact John', 'John: Phones: 98776543981']
+
+def test_save_load():
+    output = []
+    bot.main(read_string=simulate_inputs(
+        ['add John, 867594568901', 'add phone John, 98776543981', 'show all', '.']), print=output.append)
+    output = []
+    bot.main(read_string=simulate_inputs(
+        ['phone John', 'show all', '.']), print=output.append)
+    assert output == ['867594568901, 98776543981', 'John: Phones: 867594568901, 98776543981']
+
+def test_save_load_invalid():
+    with open('contacts.json', 'w') as f:
+        f.write("Invalid")
+    output = []
+    bot.main(read_string=simulate_inputs(
+        ['show all', '.']), print=output.append)
+    assert output == ['Contact book is empty']
+
+def test_search():
+    output = []
+    inputs = ['add John%d %d, 123456789%d' % ( i % 5, i, i % 5) for i in range(100)] + ['search 1234567894', 'next', 'next', 'next', 'next'] +  ['search John0', 'next', 'next', 'next', 'next', '.']
+    bot.main(read_string=simulate_inputs(inputs), print=output.append)
+    assert output[100:] == [
+        'John4 4: Phones: 1234567894\n'
+         'John4 9: Phones: 1234567894\n'
+         'John4 14: Phones: 1234567894\n'
+         'John4 19: Phones: 1234567894\n'
+         'John4 24: Phones: 1234567894',
+         'John4 29: Phones: 1234567894\n'
+         'John4 34: Phones: 1234567894\n'
+         'John4 39: Phones: 1234567894\n'
+         'John4 44: Phones: 1234567894\n'
+         'John4 49: Phones: 1234567894',
+         'John4 54: Phones: 1234567894\n'
+         'John4 59: Phones: 1234567894\n'
+         'John4 64: Phones: 1234567894\n'
+         'John4 69: Phones: 1234567894\n'
+         'John4 74: Phones: 1234567894',
+         'John4 79: Phones: 1234567894\n'
+         'John4 84: Phones: 1234567894\n'
+         'John4 89: Phones: 1234567894\n'
+         'John4 94: Phones: 1234567894\n'
+         'John4 99: Phones: 1234567894',
+         'No more data to scroll',
+         'John0 0: Phones: 1234567890\n'
+         'John0 5: Phones: 1234567890\n'
+         'John0 10: Phones: 1234567890\n'
+         'John0 15: Phones: 1234567890\n'
+         'John0 20: Phones: 1234567890',
+         'John0 25: Phones: 1234567890\n'
+         'John0 30: Phones: 1234567890\n'
+         'John0 35: Phones: 1234567890\n'
+         'John0 40: Phones: 1234567890\n'
+         'John0 45: Phones: 1234567890',
+         'John0 50: Phones: 1234567890\n'
+         'John0 55: Phones: 1234567890\n'
+         'John0 60: Phones: 1234567890\n'
+         'John0 65: Phones: 1234567890\n'
+         'John0 70: Phones: 1234567890',
+         'John0 75: Phones: 1234567890\n'
+         'John0 80: Phones: 1234567890\n'
+         'John0 85: Phones: 1234567890\n'
+         'John0 90: Phones: 1234567890\n'
+         'John0 95: Phones: 1234567890',
+         'No more data to scroll',]
