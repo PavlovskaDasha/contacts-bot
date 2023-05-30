@@ -2,6 +2,11 @@ from collections import UserDict
 import datetime
 
 
+class ValidationError(Exception):
+    def __init__(self, Field, message):
+        self.field = Field.__name__.lower()
+        self.message = message
+
 
 class Field:
     def __init__(self, value=None):
@@ -23,19 +28,19 @@ class Field:
         self.validate(value)
         self.__value = value
 
-    def __str__(self) -> str:
-        return self.__value
+    def __hash__(self) -> int:
+        return hash(self.__value)
 
     def __eq__(self, other) -> bool:
+        if hasattr(other, "value"):
+            return self.value == other.value
         return self.value == other
 
     def __str__(self) -> str:
-        return self.value
+        return self.__value
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}: {self.value}'
-    
-
+        return f"<{self.__class__.__name__}: {self.value}>"
 
 
 class Name(Field):
@@ -43,10 +48,12 @@ class Name(Field):
 
 
 class Phone(Field):
-
     def validate(self, value: str):
         if len(value) < 10:
-            raise ValueError(f"phone")
+            raise ValidationError(
+                Phone,
+                f"Length of the phone should be greater than 10. Your phone has only {len(value)} digits",
+            )
 
     def sanitize(self, phone):
         new_phone = (
@@ -62,22 +69,13 @@ class Phone(Field):
 
 class Birthday(Field):
     def sanitize(self, value: str) -> datetime.date:
-        return datetime.datetime.strptime(value, '%d/%m/%Y').date()
-
-
-class FieldSet:
-    def __init__(self):
-        self.set = set[Field]()
-
-    def add(self, field: Field):
-        self.set.add(field)
-
-    def remove(self, field: Field):
-        self.set.remove(field)
+        try:
+            return datetime.datetime.strptime(value, "%d/%m/%Y").date()
+        except Exception as e:
+            raise ValidationError(Birthday, str(e))
 
 
 class Record:
-
     def __init__(self, name: Name, phone: Phone = None, birthday: Birthday = None):
         self.name = name
         self.phones = []
@@ -89,15 +87,17 @@ class Record:
         self.phones.append(phone)
 
     def change_phone(self, old_phone: Phone, new_phone: Phone):
-        for phone in self.phones:
-            if phone == old_phone:
-                phone.value = new_phone.value
+        if not old_phone:
+            idx = 0
+        else:
+            idx = self.phones.index(old_phone)
+        self.phones[idx] = new_phone
 
     def delete_phone(self, phone: Phone):
         try:
             self.phones.remove(phone)
         except:
-            raise ValueError("The number doesn't exist")
+            raise ValueError("Phone number doesn't exist")
 
     def set_birthday(self, birthday: Birthday):
         self.birthday = birthday
@@ -106,48 +106,63 @@ class Record:
         self.birthday = None
 
     def days_to_birthday(self):
-        today=datetime.datetime.now().date()
+        if not self.birthday:
+            raise ValueError(f"Birthday is not defined for {self.name}")
+        today = datetime.datetime.now().date()
         birthday = self.birthday.value.replace(year=today.year)
-        if birthday>=today:
-            difference=(birthday-today).days
+        if birthday >= today:
+            difference = (birthday - today).days
         else:
-            difference=(self.birthday.value.replace(year=today.year+1)-today).days
+            difference = (self.birthday.value.replace(year=today.year + 1) - today).days
         return difference
 
-
-
     def __str__(self) -> str:
-        phones = ', '.join([str(phone) for phone in self.phones])
-        return f'{self.name}: Phones: {phones}'
+        phones = ", ".join([str(phone) for phone in self.phones])
+        return f"{self.name}: Phones: {phones}"
 
     def __repr__(self) -> str:
-        return f'{self.name}, Phones: {self.phones}'
+        return f"{self.name}, Phones: {self.phones}"
 
 
-class RecordsIterator:
-
-    def __init__(self, records:list[Record], N=5):
-        self.records = records
-        self.N=N
-        self.records_counter = 0
+class PaginationIterator:
+    def __init__(self, iterator, N=5):
+        self.iterator = iterator
+        self.N = N
 
     def __next__(self):
-        if self.records_counter>=len(self.records):
-            raise StopIteration
-        l = self.records[self.records_counter:self.records_counter+self.N]
-        self.records_counter+=self.N
-        return l
-    
+        values = []
+        for i in range(self.N):
+            try:
+                values.append(next(self.iterator))
+            except StopIteration:
+                if values:
+                    return values
+                raise StopIteration
+        return values
 
 
-class AddressBook(UserDict[str, Record]):
-
-    def add_record(self, record: Record):
-        self.data[record.name.value] = record
-
-    def change_phone(self, name: Name, phone: Phone):
-        old_phone = self.data[name.value].phones[0]
-        self.data[name.value].change_phone(old_phone, phone)
+class AddressBookView:
+    def __init__(self, iter):
+        self.iter = iter
 
     def __iter__(self):
-        return RecordsIterator(list(self.data.values()))
+        return PaginationIterator(self.iter)
+
+
+class AddressBook(UserDict[Name, Record]):
+    def add_record(self, record: Record):
+        if record.name in self.data:
+            raise ValueError(f"{record.name} already exists")
+        self.data[record.name] = record
+
+    def delete_record(self, name: Name):
+        self.data.pop(name)
+
+    def get_record(self, name: Name) -> Record:
+        return self.data[name]
+
+    def search_record_by_phone(self, phone: Phone) -> AddressBookView:
+        return AddressBookView(filter(lambda x: phone in x.phones, self.data.values()))
+
+    def __iter__(self):
+        return PaginationIterator(iter(self.data.values()))
