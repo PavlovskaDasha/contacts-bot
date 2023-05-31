@@ -1,7 +1,5 @@
 from inspect import signature, Parameter
 import address_book
-import os.path
-import contextlib
 
 Handler = {}
 
