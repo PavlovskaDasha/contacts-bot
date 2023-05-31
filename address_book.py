@@ -1,8 +1,14 @@
 from collections import UserDict
 import datetime
-import json
 import pickle
+import os
+import os.path
 
+
+class ValidationError(Exception):
+    def __init__(self, Field, message):
+        self.field = Field.__name__.lower()
+        self.message = message
 
 
 class Field:
@@ -25,22 +31,22 @@ class Field:
         self.validate(value)
         self.__value = value
 
-    def __str__(self) -> str:
-        return self.__value
+    def __hash__(self) -> int:
+        return hash(self.__value)
 
     def __eq__(self, other) -> bool:
+        if hasattr(other, "value"):
+            return self.value == other.value
         return self.value == other
 
     def __str__(self) -> str:
-        return self.value
+        return self.__value
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}: {self.value}'
-    
+        return f"<{self.__class__.__name__}: {self.value}>"
+
     def __contains__(self, value):
         return value in self.value
-    
-
 
 
 class Name(Field):
@@ -48,10 +54,12 @@ class Name(Field):
 
 
 class Phone(Field):
-
     def validate(self, value: str):
         if len(value) < 10:
-            raise ValueError(f"phone")
+            raise ValidationError(
+                Phone,
+                f"Length of the phone should be greater than 10. Your phone has only {len(value)} digits",
+            )
 
     def sanitize(self, phone):
         new_phone = (
@@ -67,22 +75,13 @@ class Phone(Field):
 
 class Birthday(Field):
     def sanitize(self, value: str) -> datetime.date:
-        return datetime.datetime.strptime(value, '%d/%m/%Y').date()
-
-
-class FieldSet:
-    def __init__(self):
-        self.set = set[Field]()
-
-    def add(self, field: Field):
-        self.set.add(field)
-
-    def remove(self, field: Field):
-        self.set.remove(field)
+        try:
+            return datetime.datetime.strptime(value, "%d/%m/%Y").date()
+        except Exception as e:
+            raise ValidationError(Birthday, str(e))
 
 
 class Record:
-
     def __init__(self, name: Name, phone: Phone = None, birthday: Birthday = None):
         self.name = name
         self.phones = []
@@ -94,15 +93,17 @@ class Record:
         self.phones.append(phone)
 
     def change_phone(self, old_phone: Phone, new_phone: Phone):
-        for phone in self.phones:
-            if phone == old_phone:
-                phone.value = new_phone.value
+        if not old_phone:
+            idx = 0
+        else:
+            idx = self.phones.index(old_phone)
+        self.phones[idx] = new_phone
 
     def delete_phone(self, phone: Phone):
         try:
             self.phones.remove(phone)
         except:
-            raise ValueError("The number doesn't exist")
+            raise ValueError("Phone number doesn't exist")
 
     def set_birthday(self, birthday: Birthday):
         self.birthday = birthday
@@ -111,25 +112,27 @@ class Record:
         self.birthday = None
 
     def days_to_birthday(self):
-        today=datetime.datetime.now().date()
+        if not self.birthday:
+            raise ValueError(f"Birthday is not defined for {self.name}")
+        today = datetime.datetime.now().date()
         birthday = self.birthday.value.replace(year=today.year)
-        if birthday>=today:
-            difference=(birthday-today).days
+        if birthday >= today:
+            difference = (birthday - today).days
         else:
-            difference=(self.birthday.value.replace(year=today.year+1)-today).days
+            difference = (self.birthday.value.replace(year=today.year + 1) - today).days
         return difference
 
     def __str__(self) -> str:
-        phones = ', '.join([str(phone) for phone in self.phones])
+        phones = ", ".join([str(phone) for phone in self.phones])
         if self.birthday != None:
-             return f'{self.name}: Phones: {phones}, Birthday: {self.birthday.value.strftime("%d/%m/%Y")}'
-        return f'{self.name}: Phones: {phones}'
+            return f'{self.name}: Phones: {phones}, Birthday: {self.birthday.value.strftime("%d/%m/%Y")}'
+        return f"{self.name}: Phones: {phones}"
 
     def __repr__(self) -> str:
         if self.birthday != None:
             return f'{self.name}, Phones: {self.phones}, Birthday: {self.birthday.value.strftime("%d/%m/%Y")}'
-        return f'{self.name}, Phones: {self.phones}'
-    
+        return f"{self.name}, Phones: {self.phones}"
+
     def match(self, input):
         if input in self.name:
             return True
@@ -139,78 +142,78 @@ class Record:
         return False
 
 
-
-class RecordsIterator:
-
-    def __init__(self, records:list[Record], N=5):
-        self.records = records
-        self.N=N
-        self.records_counter = 0
+class PaginationIterator:
+    def __init__(self, iterator, N=5):
+        self.iterator = iterator
+        self.N = N
 
     def __next__(self):
-        if self.records_counter>=len(self.records):
-            raise StopIteration
-        l = self.records[self.records_counter:self.records_counter+self.N]
-        self.records_counter+=self.N
-        return l
+        values = []
+        for i in range(self.N):
+            try:
+                values.append(next(self.iterator))
+            except StopIteration:
+                if values:
+                    return values
+                raise StopIteration
+        return values
 
-class ComplexEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime.date):    
-            return obj.strftime('%d/%m/%Y')
-        if isinstance(obj, Field):    
-            return obj.value
-        return obj.__dict__
 
-def decode_record(d):
-    if 'name' in d:
-        r = Record(Name(d['name']))
-        if 'phones' in d:
-            for phone in d['phones']:
-                r.add_phone(Phone(phone))
-        if 'birthday' in d and d['birthday']:
-            r.set_birthday(Birthday(d['birthday']))
-        return r
-    return d
-
-class AddressBook(UserDict[str, Record]):
-
-    def add_record(self, record: Record):
-        self.data[record.name.value] = record
-
-    def change_phone(self, name: Name, phone: Phone):
-        old_phone = self.data[name.value].phones[0]
-        self.data[name.value].change_phone(old_phone, phone)
+class AddressBookView:
+    def __init__(self, iter):
+        self.iter = iter
 
     def __iter__(self):
-        return RecordsIterator(list(self.data.values()))
-    
-    def save_to_file(self, file):
-        if file.endswith(".json"):
-            with open (file, 'w') as fh:
-                json.dump(self.data, fh, cls=ComplexEncoder)
-            return
-        if file.endswith(".bin"):
-            with open (file, 'wb') as fh:
-                pickle.dump(self.data, fh)
-            return
-
-    def read_from_file(self, file):
-        if file.endswith(".json"):
-            with open (file, 'r') as fh:
-                self.data=json.load(fh, object_hook=decode_record)
-            return
-        if file.endswith(".bin"):
-            with open (file, 'rb') as fh:
-                self.data = pickle.load(fh)
-            return
-        
-    def search(self, value):
-        return RecordsIterator(list((filter(lambda x: x.match(value), self.data.values()))))
+        return PaginationIterator(self.iter)
 
 
+class AddressBook(UserDict[Name, Record]):
+    def add_record(self, record: Record):
+        if record.name in self.data:
+            raise ValueError(f"{record.name} already exists")
+        self.data[record.name] = record
+
+    def delete_record(self, name: Name):
+        self.data.pop(name)
+
+    def get_record(self, name: Name) -> Record:
+        return self.data[name]
+
+    def search_record_by_phone(self, phone: Phone) -> AddressBookView:
+        return AddressBookView(filter(lambda x: phone in x.phones, self.data.values()))
+
+    def save_to_file(self, store):
+        store.dump(self.data)
+
+    def read_from_file(self, store):
+        self.data = store.load()
+
+    def search(self, value: str):
+        return AddressBookView(filter(lambda x: x.match(value), self.data.values()))
+
+    def __iter__(self):
+        return PaginationIterator(iter(self.data.values()))
 
 
+class Store:
+    pass
 
 
+class PickleStore(Store):
+    def __init__(self, file):
+        self.file = file
 
+    def dump(self, data):
+        with open(self.file, "wb") as fh:
+            pickle.dump(data, fh)
+        return
+
+    def load(self) -> AddressBook:
+        if os.path.exists(self.file):
+            try:
+                with open(self.file, "rb") as fh:
+                    return pickle.load(fh)
+            except:
+                os.remove(self.file)
+                return {}
+        return {}
